@@ -73,43 +73,96 @@
 ##########################################################################
 # session 7:
 
-from fastapi import FastAPI ,Depends
-from typing import Annotated
-from sqlmodel import Field,Session,SQLModel,create_engine,select
+# from fastapi import FastAPI ,Depends
+# from typing import Annotated
+# from sqlmodel import Field,Session,SQLModel,create_engine,select
 
+
+# app = FastAPI()
+
+
+# class User(SQLModel,table = True):
+#     id: int = Field(primary_key=True)
+#     username: str = Field(index=True)
+#     email: str
+#     phone_number: str
+#     password: str 
+
+# sql_file_name = 'mydb.sqlite3'
+# sql_url = f'sqlite:///{sql_file_name}'
+# connect_args = {'check_same_thread':False}
+# engine = create_engine(sql_url,connect_args=connect_args)
+
+
+# def create_db_and_tables():
+#     SQLModel.metadata.create_all(engine)
+
+# def get_session():
+#     with Session(engine) as session:
+#         yield session
+
+# sessionDep = Annotated[Session,Depends(get_session)]
+
+# @app.on_event('startup')
+# def on_start_up():
+#     create_db_and_tables()
+
+# @app.post('/user/')
+# async def create_new_user(user:User,session:sessionDep) -> dict:
+#     session.add(user)
+#     session.commit()
+#     session.refresh(user)
+#     return {'message':f'user {user.username} created'}
+
+
+
+##########################################################################
+# session 8:
+from fastapi import FastAPI, HTTPException
+from sqlmodel import select
+from models import User, UserIn, UserOut
+from db import create_db_and_tables, sessionDep
 
 app = FastAPI()
 
 
-class User(SQLModel,table = True):
-    id: int = Field(primary_key=True)
-    username: str = Field(index=True)
-    email: str
-    phone_number: str
-    password: str 
-
-sql_file_name = 'mydb.sqlite3'
-sql_url = f'sqlite:///{sql_file_name}'
-connect_args = {'check_same_thread':False}
-engine = create_engine(sql_url,connect_args=connect_args)
-
-
-def create_db_and_tables():
-    SQLModel.metadata.create_all(engine)
-
-def get_session():
-    with Session(engine) as session:
-        yield session
-
-sessionDep = Annotated[Session,Depends(get_session)]
-
-@app.on_event('startup')
-def on_start_up():
+@app.on_event("startup")
+def on_startup():
     create_db_and_tables()
 
-@app.post('/user/')
-async def create_new_user(user:User,session:sessionDep) -> dict:
-    session.add(user)
+
+@app.post("/user/", response_model=UserOut)
+async def create_user(user: UserIn, session: sessionDep):
+    db_user = User(**user.dict())  # Convert UserIn → User (table model)
+    session.add(db_user)
     session.commit()
-    session.refresh(user)
-    return {'message':f'user {user.username} created'}
+    session.refresh(db_user)
+    return db_user  # Automatically converted to UserOut because of response_model
+
+
+@app.get("/users/all/", response_model=list[UserOut])
+async def get_users(session: sessionDep):
+    users = session.exec(select(User)).all()
+    return users
+
+
+@app.get("/user/{user_id}", response_model=UserOut)
+async def get_user(user_id: int, session: sessionDep):
+    # user = session.exec(select(User).where(User.id == user_id)).first()
+    user = session.get(User,user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+
+@app.delete("/user/{user_id}")
+async def delete_user(user_id: int, session: sessionDep):
+    # user = session.exec(select(User).where(User.id == user_id)).first()
+    user = session.get(User,user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    session.delete(user)
+    session.commit()
+    return {'message':'user deleted successfully'}
+
+# 11 
