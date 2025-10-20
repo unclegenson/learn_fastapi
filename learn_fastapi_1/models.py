@@ -22,3 +22,11 @@ class UserOut(SQLModel):
     username: str
     email: str
     phone_number: str
+
+
+# Used for update (patch)
+class UserUpdate(SQLModel):
+    id: int | None = None
+    username: str | None = None
+    email: str | None = None
+    phone_number: str | None = None

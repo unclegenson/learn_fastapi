@@ -118,35 +118,88 @@
 
 ##########################################################################
 # session 8:
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException,Request
 from sqlmodel import select
-from models import User, UserIn, UserOut
-from db import create_db_and_tables, sessionDep
+from models import User, UserIn, UserOut,UserUpdate
+from db import create_db_and_tables, sessionDep,Hasher
+import time
+import datetime
+from starlette.middleware.base import BaseHTTPMiddleware
+from fastapi.responses import JSONResponse
+
 
 app = FastAPI()
 
+@app.middleware('http')
+async def add_time_header(request: Request,call_next):
+
+    start_time = time.time()
+    response = await call_next(request)
+    process_time = time.time() - start_time
+    process_time = str(process_time)[0:5] + 's'
+    response.headers['X-Process-Time'] = process_time
+
+    return response
+
+
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    RATE_LIMIT_DURATION = datetime.timedelta(minutes=1)
+    RATE_LIMIT_REQUESTS = 10
+
+    def __init__(self, app):
+        super().__init__(app)
+        self.requests_count = {}  # {ip: (request_count, last_request)}
+
+    async def dispatch(self, request, call_next):
+        client_ip = request.client.host
+        request_count, last_request = self.requests_count.get(client_ip, (0, datetime.datetime.min))
+        elapesed_time = datetime.datetime.now() - last_request
+        if (elapesed_time > self.RATE_LIMIT_DURATION):
+            request_count = 1
+        else: 
+            if (request_count >= self.RATE_LIMIT_REQUESTS):
+                return JSONResponse(status_code=400,content={'message':'rate limit exceed! try again later.'})
+            request_count += 1
+
+        self.requests_count[client_ip] = (request_count, datetime.datetime.now())
+        response = await call_next(request)
+        return response
+
+
+app.add_middleware(RateLimitMiddleware)
 
 @app.on_event("startup")
 def on_startup():
     create_db_and_tables()
 
 
-@app.post("/user/", response_model=UserOut)
+@app.post("/users/", response_model=UserOut)
 async def create_user(user: UserIn, session: sessionDep):
+
+    similar_user = session.exec(select(User).where(User.email == user.email)).first()
+    if (similar_user):
+        raise HTTPException(status_code=400,detail='a user with this email is already existed!')
+    
+    similar_user = session.exec(select(User).where(User.username == user.username)).first()
+    if (similar_user):
+        raise HTTPException(status_code=400,detail='a user with this username is already existed!')
+    
     db_user = User(**user.dict())  # Convert UserIn → User (table model)
+    password_hashed = Hasher.hash_pass(user.password)
+    db_user.password = password_hashed
     session.add(db_user)
     session.commit()
     session.refresh(db_user)
     return db_user  # Automatically converted to UserOut because of response_model
 
 
-@app.get("/users/all/", response_model=list[UserOut])
+@app.get("/users/", response_model=list[UserOut])
 async def get_users(session: sessionDep):
     users = session.exec(select(User)).all()
     return users
 
 
-@app.get("/user/{user_id}", response_model=UserOut)
+@app.get("/users/{user_id}", response_model=UserOut)
 async def get_user(user_id: int, session: sessionDep):
     # user = session.exec(select(User).where(User.id == user_id)).first()
     user = session.get(User,user_id)
@@ -155,7 +208,7 @@ async def get_user(user_id: int, session: sessionDep):
     return user
 
 
-@app.delete("/user/{user_id}")
+@app.delete("/users/{user_id}")
 async def delete_user(user_id: int, session: sessionDep):
     # user = session.exec(select(User).where(User.id == user_id)).first()
     user = session.get(User,user_id)
@@ -166,3 +219,17 @@ async def delete_user(user_id: int, session: sessionDep):
     return {'message':'user deleted successfully'}
 
 # 11 
+
+@app.patch("/users/{user_id}")
+async def update_user(user_id: int,user: UserUpdate, session: sessionDep):
+    # user = session.exec(select(User).where(User.id == user_id)).first()
+    want_to_update_user = session.get(User,user_id)
+    if not want_to_update_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    user_data = user.model_dump(exclude_unset=True) # remove params that is set to None
+    want_to_update_user.sqlmodel_update(user_data) # use for updating the past user 
+    session.add(want_to_update_user)
+    session.commit()
+    session.refresh(want_to_update_user)
+    return want_to_update_user

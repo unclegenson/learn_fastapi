@@ -2,6 +2,8 @@ from sqlmodel import SQLModel, Session, create_engine
 from typing import Annotated
 from fastapi import Depends
 
+from passlib.context import CryptContext
+
 sqlite_file_name = "mydb.sqlite3"
 sqlite_url = f"sqlite:///{sqlite_file_name}"
 
@@ -19,3 +21,14 @@ def get_session():
 
 
 sessionDep = Annotated[Session, Depends(get_session)]
+
+passwordContext = CryptContext(schemes=['sha256_crypt'])
+
+class Hasher:
+    @staticmethod
+    def verify_pass(plain_pass,hashed_pass) -> bool:
+       return passwordContext.verify(plain_pass,hashed_pass)
+
+    @staticmethod
+    def hash_pass(password):
+        return passwordContext.hash(password)
