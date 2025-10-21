@@ -26,10 +26,6 @@ async def event_lifespan(app):
     with open('server_time_log','a') as log:
         log.write(f'server shut downs at {datetime.datetime.now()}\n')
 
-app = FastAPI(lifespan=event_lifespan)
-
-# Remove the @app.on_event("startup") completely
-
 
 app = FastAPI(lifespan=event_lifespan)
 
@@ -56,19 +52,31 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request, call_next):
         client_ip = request.client.host
-        request_count, last_request = self.requests_count.get(client_ip, (0, datetime.datetime.min))
-        elapesed_time = datetime.datetime.now() - last_request
-        if (elapesed_time > self.RATE_LIMIT_DURATION):
-            request_count = 1
-        else: 
-            if (request_count >= self.RATE_LIMIT_REQUESTS):
-                return JSONResponse(status_code=400,content={'message':'rate limit exceed! try again later.'})
-            request_count += 1
-
-        self.requests_count[client_ip] = (request_count, datetime.datetime.now())
+        current_time = datetime.datetime.now()
+        
+        # Get or initialize request data
+        if client_ip in self.requests_count:
+            request_count, last_request = self.requests_count[client_ip]
+            elapsed_time = current_time - last_request
+            
+            # Reset counter if time window has passed
+            if elapsed_time > self.RATE_LIMIT_DURATION:
+                request_count = 0
+            else:
+                # Check rate limit
+                if request_count >= self.RATE_LIMIT_REQUESTS:
+                    return JSONResponse(
+                        status_code=429,  
+                        content={'message': 'Rate limit exceeded! Try again later.'}
+                    )
+        else:
+            request_count = 0
+        
+        request_count += 1
+        self.requests_count[client_ip] = (request_count, current_time)
+        
         response = await call_next(request)
         return response
-
 
 app.add_middleware(RateLimitMiddleware)
 

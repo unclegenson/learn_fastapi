@@ -65,3 +65,6 @@ class PostUpdate(SQLModel):
     description: str | None = None
     user_id: int | None = None
 
+class LoginRequest(SQLModel):
+    email: str
+    password: str

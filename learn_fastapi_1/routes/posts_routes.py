@@ -1,11 +1,13 @@
-from fastapi import HTTPException,APIRouter
+from fastapi import HTTPException,APIRouter,Depends
 from sqlmodel import select
 from models import Post,PostIn, PostUpdate, User,PostOutWithAuthor,UserOut
 from db import sessionDep
+from jwt_auth import JWTBearer
 
 router = APIRouter()
 
-@router.post("/posts/", response_model=PostOutWithAuthor)
+
+@router.post("/posts/", response_model=PostOutWithAuthor, dependencies=[Depends(JWTBearer())])
 async def create_post(post: PostIn, session: sessionDep):
     user = session.get(User, post.user_id)
     if not user:
@@ -15,23 +17,19 @@ async def create_post(post: PostIn, session: sessionDep):
     if similar_post:
         raise HTTPException(status_code=400, detail='A post with this title already exists!')
         
-    db_post = Post(**post.dict())
+    db_post = Post(
+        title=post.title,
+        description=post.description,
+        user_id=post.user_id  
+    )
     session.add(db_post)
     session.commit()
     session.refresh(db_post)
     
-    return PostOutWithAuthor(
-        id=db_post.id,
-        title=db_post.title,
-        description=db_post.description,
-        user_id=db_post.user_id,
-        author=UserOut(
-            id=user.id,
-            username=user.username,
-            email=user.email,
-            phone_number=user.phone_number
-        )
-    )
+    # Now db_post includes the author relationship
+    return PostOutWithAuthor.model_validate(db_post)
+
+
 
 @router.get("/posts/", response_model=list[PostOutWithAuthor])
 async def get_posts(session: sessionDep):
@@ -90,7 +88,7 @@ async def get_post(post_id: int, session: sessionDep):
     )
 
 
-@router.delete("/posts/{post_id}")
+@router.delete("/posts/{post_id}",dependencies=[Depends(JWTBearer())])
 async def delete_post(post_id: int, session: sessionDep):
     post = session.get(Post,post_id)
     if not post:
@@ -100,7 +98,7 @@ async def delete_post(post_id: int, session: sessionDep):
     return {'message':'Post deleted successfully'}
 
 
-@router.patch("/posts/{post_id}")
+@router.patch("/posts/{post_id}",dependencies=[Depends(JWTBearer())])
 async def update_post(post_id: int, post: PostUpdate, session: sessionDep):
     want_to_update_post = session.get(Post,post_id)
     if not want_to_update_post:
