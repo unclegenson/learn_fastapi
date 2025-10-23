@@ -6,9 +6,13 @@ import datetime
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
+from jwt_auth import get_token_remaining_time, is_token_expiring_soon
 
 from routes.users_routes import router as users_router
 from routes.posts_routes import router as post_router
+from routes.auth_routes import router as auth_router
+
+
 
 
 @asynccontextmanager
@@ -29,6 +33,21 @@ async def event_lifespan(app):
 
 app = FastAPI(lifespan=event_lifespan)
 
+@app.middleware('http')
+async def token_expiration_middleware(request: Request, call_next):
+    response = await call_next(request)
+    
+    # Check if this is an authenticated request
+    auth_header = request.headers.get('authorization')
+    if auth_header and auth_header.startswith('Bearer '):
+        token = auth_header[7:]
+        remaining = get_token_remaining_time(token)
+        
+        # Add headers to inform client about token status
+        response.headers['X-Token-Expires-In'] = str(remaining)
+        response.headers['X-Token-Expiring-Soon'] = str(is_token_expiring_soon(token))
+    
+    return response
 
 @app.middleware('http')
 async def add_time_header(request: Request,call_next):
@@ -80,5 +99,15 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(RateLimitMiddleware)
 
+app.include_router(auth_router,tags=['auth'])
 app.include_router(users_router,tags=['users'])
 app.include_router(post_router,tags=['posts'])
+
+@app.get("/")
+async def root():
+    return {"message": "Welcome to the API"}
+
+
+# access: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6ImFkbWluQGdtYWlsLmNvbSIsInVzZXJfaWQiOjEsImV4cCI6MTc2MTIzODIyMi45ODE0NzE4LCJ0eXBlIjoiYWNjZXNzIn0.WQltjEIycpk9j0GAuqqaVIaVLsMxlaH9-_GIHB6SEQk
+# refresh: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoxLCJlbWFpbCI6ImFkbWluQGdtYWlsLmNvbSIsImV4cCI6MTc2MzgwODYyMi45ODE1NjMzLCJ0eXBlIjoicmVmcmVzaCJ9.QkJ32u-e7O4CtzxQcnQvjvqRC9CzuWyPNp1kaJD_d8U
+

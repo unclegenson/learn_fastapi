@@ -2,16 +2,15 @@ from fastapi import HTTPException,APIRouter,Depends
 from sqlmodel import select
 from models import Post,PostIn, PostUpdate, User,PostOutWithAuthor,UserOut
 from db import sessionDep
-from jwt_auth import JWTBearer
+from jwt_auth import JWTBearer,decode_jwt
 
 router = APIRouter()
 
 
-@router.post("/posts/", response_model=PostOutWithAuthor, dependencies=[Depends(JWTBearer())])
-async def create_post(post: PostIn, session: sessionDep):
-    user = session.get(User, post.user_id)
-    if not user:
-        raise HTTPException(status_code=400, detail='User with this id does not exist!')
+@router.post("/posts/", response_model=PostOutWithAuthor)
+async def create_post(post: PostIn, session: sessionDep,token = Depends(JWTBearer())):
+    decoded_token = decode_jwt(token=token)
+    user_id = decoded_token['user_id']
 
     similar_post = session.exec(select(Post).where(Post.title == post.title)).first()
     if similar_post:
@@ -20,7 +19,7 @@ async def create_post(post: PostIn, session: sessionDep):
     db_post = Post(
         title=post.title,
         description=post.description,
-        user_id=post.user_id  
+        user_id=user_id
     )
     session.add(db_post)
     session.commit()
@@ -88,11 +87,18 @@ async def get_post(post_id: int, session: sessionDep):
     )
 
 
-@router.delete("/posts/{post_id}",dependencies=[Depends(JWTBearer())])
-async def delete_post(post_id: int, session: sessionDep):
+@router.delete("/posts/{post_id}")
+async def delete_post(post_id: int, session: sessionDep,token = Depends(JWTBearer())):
     post = session.get(Post,post_id)
+    decoded_token = decode_jwt(token=token)
+    user_id = decoded_token['user_id']
+
+    if not post.author.id == user_id:
+        raise HTTPException(status_code=403, detail='this post is not yours. get the fuck out of here.')
+
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
+    
     session.delete(post)
     session.commit()
     return {'message':'Post deleted successfully'}

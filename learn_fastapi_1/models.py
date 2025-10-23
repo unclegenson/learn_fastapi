@@ -7,6 +7,7 @@ class User(SQLModel, table=True):
     email: str
     phone_number: str
     password: str
+    is_admin: bool | None = False
 
     posts: list['Post'] = Relationship(cascade_delete=True, back_populates='author')
 
@@ -49,7 +50,6 @@ class Post(SQLModel,table=True):
 class PostIn(SQLModel):
     title: str 
     description: str 
-    user_id: int 
 
 class PostOutWithAuthor(SQLModel):
     id: int 
